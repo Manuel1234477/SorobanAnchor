@@ -21,8 +21,18 @@ enum Commands {
     Register {
         #[arg(long)]
         address: String,
+        #[arg(long, value_delimiter = ',')]
+        services: Vec<String>,
         #[arg(long)]
-        services: String,
+        contract_id: String,
+        #[arg(long, default_value = "testnet")]
+        network: String,
+        #[arg(long, default_value = "default")]
+        source: String,
+        #[arg(long)]
+        sep10_token: String,
+        #[arg(long)]
+        sep10_issuer: String,
     },
     /// Submit an attestation
     Attest {
@@ -80,14 +90,96 @@ fn deploy(network: &str, source: &str) {
     }
 }
 
+fn parse_services(services: &[String]) -> Vec<u32> {
+    services.iter().map(|s| match s.trim() {
+        "deposits"    => 1,
+        "withdrawals" => 2,
+        "quotes"      => 3,
+        "kyc"         => 4,
+        other => { eprintln!("Unknown service: {other}"); std::process::exit(1); }
+    }).collect()
+}
+
+fn register(
+    address: &str,
+    services: &[String],
+    contract_id: &str,
+    network: &str,
+    source: &str,
+    sep10_token: &str,
+    sep10_issuer: &str,
+) {
+    let rpc_url = match network {
+        "mainnet"   => "https://horizon.stellar.org",
+        "futurenet" => "https://rpc-futurenet.stellar.org",
+        _           => "https://soroban-testnet.stellar.org",
+    };
+    let network_passphrase = match network {
+        "mainnet"   => "Public Global Stellar Network ; September 2015",
+        "futurenet" => "Test SDF Future Network ; October 2022",
+        _           => "Test SDF Network ; September 2015",
+    };
+
+    let service_ids = parse_services(services);
+    let services_arg = service_ids.iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    println!("Registering attestor {address} with services: {}", services.join(","));
+
+    // Step 1: register_attestor
+    let output = std::process::Command::new("stellar")
+        .args([
+            "contract", "invoke",
+            "--id", contract_id,
+            "--source", source,
+            "--rpc-url", rpc_url,
+            "--network-passphrase", network_passphrase,
+            "--", "register_attestor",
+            "--attestor", address,
+            "--sep10_token", sep10_token,
+            "--sep10_issuer", sep10_issuer,
+        ])
+        .output()
+        .expect("failed to run stellar contract invoke — is the Stellar CLI installed?");
+
+    if !output.status.success() {
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr).trim());
+        std::process::exit(1);
+    }
+
+    // Step 2: configure_services
+    let svc_output = std::process::Command::new("stellar")
+        .args([
+            "contract", "invoke",
+            "--id", contract_id,
+            "--source", source,
+            "--rpc-url", rpc_url,
+            "--network-passphrase", network_passphrase,
+            "--", "configure_services",
+            "--anchor", address,
+            "--services", &services_arg,
+        ])
+        .output()
+        .expect("failed to run stellar contract invoke");
+
+    if svc_output.status.success() {
+        println!("Attestor {address} registered and services configured.");
+    } else {
+        eprintln!("{}", String::from_utf8_lossy(&svc_output.stderr).trim());
+        std::process::exit(1);
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     match cli.command {
         Commands::Deploy { network, source } => {
             deploy(&network, &source);
         }
-        Commands::Register { address, services } => {
-            println!("Registering attestor {address} with services: {services}");
+        Commands::Register { address, services, contract_id, network, source, sep10_token, sep10_issuer } => {
+            register(&address, &services, &contract_id, &network, &source, &sep10_token, &sep10_issuer);
         }
         Commands::Attest { subject, payload_hash } => {
             println!("Attesting subject {subject} with payload hash {payload_hash}");
