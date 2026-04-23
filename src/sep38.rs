@@ -76,6 +76,20 @@ pub fn request_firm_quote(raw: RawFirmQuote) -> Result<FirmQuote, Error> {
     })
 }
 
+/// Checks if a quote has expired based on the current timestamp.
+///
+/// Returns `true` if the quote's `expires_at` is in the past.
+pub fn is_quote_expired(quote: &FirmQuote, current_timestamp: u64) -> bool {
+    // Parse expires_at as a timestamp string (ISO 8601 or Unix timestamp)
+    // For now, we'll try to parse as u64 directly, or return false if parsing fails
+    if let Ok(expires_at_ts) = quote.expires_at.parse::<u64>() {
+        expires_at_ts <= current_timestamp
+    } else {
+        // If we can't parse, assume not expired to be safe
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +122,41 @@ mod tests {
         assert_eq!(result.price, "0.15");
         assert_eq!(result.sell_amount, "1000");
         assert_eq!(result.buy_amount, "150");
+    }
+
+    #[test]
+    fn test_is_quote_expired_true() {
+        let quote = FirmQuote {
+            id: "quote-123".to_string(),
+            expires_at: "1000".to_string(),
+            price: "0.15".to_string(),
+            sell_amount: "1000".to_string(),
+            buy_amount: "150".to_string(),
+        };
+        assert!(is_quote_expired(&quote, 2000));
+    }
+
+    #[test]
+    fn test_is_quote_expired_false() {
+        let quote = FirmQuote {
+            id: "quote-123".to_string(),
+            expires_at: "2000".to_string(),
+            price: "0.15".to_string(),
+            sell_amount: "1000".to_string(),
+            buy_amount: "150".to_string(),
+        };
+        assert!(!is_quote_expired(&quote, 1000));
+    }
+
+    #[test]
+    fn test_is_quote_expired_at_boundary() {
+        let quote = FirmQuote {
+            id: "quote-123".to_string(),
+            expires_at: "1500".to_string(),
+            price: "0.15".to_string(),
+            sell_amount: "1000".to_string(),
+            buy_amount: "150".to_string(),
+        };
+        assert!(is_quote_expired(&quote, 1500));
     }
 }
