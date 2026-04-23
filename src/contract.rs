@@ -5,6 +5,7 @@ use soroban_sdk::{
 
 use crate::deterministic_hash::{compute_payload_hash, verify_payload_hash};
 use crate::errors::ErrorCode;
+use crate::rate_limiter::RateLimiter;
 use crate::sep10_jwt;
 
 // ---------------------------------------------------------------------------
@@ -542,6 +543,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     ) -> u64 {
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
+        Self::enforce_rate_limit(&env, &issuer);
         Self::check_timestamp(&env, timestamp);
 
         let used_key = (symbol_short!("USED"), payload_hash.clone());
@@ -854,6 +856,7 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     ) -> u64 {
         issuer.require_auth();
         Self::check_attestor(&env, &issuer);
+        Self::enforce_rate_limit(&env, &issuer);
         Self::check_timestamp(&env, timestamp);
 
         let used_key = (symbol_short!("USED"), payload_hash.clone());
@@ -1397,6 +1400,13 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
+
+    fn enforce_rate_limit(env: &Env, attestor: &Address) {
+        let config = RateLimiter::get_config(env);
+        if RateLimiter::check_and_increment(env, attestor, &config).is_err() {
+            panic_with_error!(env, ErrorCode::RateLimitExceeded);
+        }
+    }
 
     fn require_admin(env: &Env) {
         let admin: Address = env
