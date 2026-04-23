@@ -6,6 +6,7 @@ use soroban_sdk::{
 use crate::deterministic_hash::{compute_payload_hash, verify_payload_hash};
 use crate::errors::ErrorCode;
 use crate::sep10_jwt;
+use crate::transaction_state_tracker::{TransactionState, TransactionStateRecord};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -285,6 +286,15 @@ struct AttestEvent {
 pub struct EndpointUpdated {
     pub attestor: Address,
     pub endpoint: String,
+}
+
+#[contracttype]
+#[derive(Clone)]
+struct TxStateChangedEvent {
+    transaction_id: u64,
+    old_state: u32,
+    new_state: u32,
+    timestamp: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -1392,6 +1402,90 @@ pub fn is_attestor(env: Env, attestor: Address) -> bool {
         match Self::get_anchor_asset_info(env, anchor, asset_code) {
             asset => asset.withdrawal_enabled,
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Transaction state tracking
+    // -----------------------------------------------------------------------
+
+    /// Advance a stored transaction to `new_state`, enforcing legal transitions:
+    /// Pending → InProgress → Completed | Failed.
+    /// Panics with `IllegalTransition` if the transition is not allowed.
+    pub fn advance_transaction_state(
+        env: Env,
+        transaction_id: u64,
+        new_state: TransactionState,
+    ) -> TransactionStateRecord {
+        let key = (symbol_short!("TXSTATE"), transaction_id);
+        let record: TransactionStateRecord = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound));
+
+        if !record.state.is_valid_transition(new_state) {
+            panic_with_error!(&env, ErrorCode::IllegalTransition);
+        }
+
+        let now = env.ledger().timestamp();
+        let old_state = record.state;
+        let updated = TransactionStateRecord {
+            state: new_state,
+            last_updated: now,
+            ..record
+        };
+
+        env.storage().persistent().set(&key, &updated);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+
+        env.events().publish(
+            (symbol_short!("tx"), symbol_short!("state"), transaction_id),
+            TxStateChangedEvent {
+                transaction_id,
+                old_state: old_state as u32,
+                new_state: new_state as u32,
+                timestamp: now,
+            },
+        );
+
+        updated
+    }
+
+    /// Store a new transaction record in persistent storage (Pending state).
+    pub fn create_transaction_record(
+        env: Env,
+        transaction_id: u64,
+        initiator: Address,
+    ) -> TransactionStateRecord {
+        initiator.require_auth();
+        let key = (symbol_short!("TXSTATE"), transaction_id);
+        if env.storage().persistent().has(&key) {
+            panic_with_error!(&env, ErrorCode::AlreadyInitialized);
+        }
+        let now = env.ledger().timestamp();
+        let record = TransactionStateRecord {
+            transaction_id,
+            state: TransactionState::Pending,
+            initiator,
+            timestamp: now,
+            last_updated: now,
+            error_message: None,
+        };
+        env.storage().persistent().set(&key, &record);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_TTL, PERSISTENT_TTL);
+        record
+    }
+
+    /// Retrieve a stored transaction record.
+    pub fn get_transaction_record(env: Env, transaction_id: u64) -> TransactionStateRecord {
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("TXSTATE"), transaction_id))
+            .unwrap_or_else(|| panic_with_error!(&env, ErrorCode::AttestationNotFound))
     }
 
     // -----------------------------------------------------------------------
