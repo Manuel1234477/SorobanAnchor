@@ -179,9 +179,12 @@ fn validate_host(host: &str) -> Result<(), AnchorKitError> {
 
 /// Validates URL characters
 fn validate_url_characters(url: &str) -> Result<(), AnchorKitError> {
-    // Check for control characters
     for c in url.chars() {
         if c.is_control() {
+            return Err(AnchorKitError::invalid_endpoint_format());
+        }
+        // Reject characters not valid in URLs per RFC 3986 / issue #67
+        if matches!(c, '<' | '>' | '{' | '}' | '|' | '\\') {
             return Err(AnchorKitError::invalid_endpoint_format());
         }
     }
