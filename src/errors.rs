@@ -45,12 +45,17 @@ pub enum ErrorCode {
     AttestationNotFound = 17,
     InvalidSep10Token = 18,
     KycNotFound = 19,
-    KycPending = 20,
     KycRejected = 21,
+<<<<<<< fix/kyc-pending-error-code-22
+    KycPending = 22,
+    NotInitialized = 23,
+    IllegalTransition = 24,
+=======
     NotInitialized = 22,
     IllegalTransition = 23,
     SessionExpired = 25,
     SessionClosed = 26,
+>>>>>>> main
     CacheExpired = 48,
     CacheNotFound = 49,
 }
@@ -79,13 +84,18 @@ impl ErrorCode {
             ErrorCode::AttestationNotFound => "Attestation not found",
             ErrorCode::InvalidSep10Token => "SEP-10 JWT is missing, expired, or invalid",
             ErrorCode::KycNotFound => "KYC record not found",
-            ErrorCode::KycPending => "KYC verification is pending",
             ErrorCode::KycRejected => "KYC verification was rejected",
+            ErrorCode::KycPending => "KYC verification is pending",
+            ErrorCode::NotInitialized => "Contract is not initialized",
+            ErrorCode::IllegalTransition => "Illegal transaction state transition",
             ErrorCode::CacheExpired => "Cache entry has expired",
             ErrorCode::CacheNotFound => "Cache entry not found",
+<<<<<<< fix/kyc-pending-error-code-22
+=======
             ErrorCode::IllegalTransition => "Illegal transaction state transition",
             ErrorCode::SessionExpired => "Session has expired",
             ErrorCode::SessionClosed => "Session is closed",
+>>>>>>> main
         }
     }
 }
@@ -332,12 +342,15 @@ mod tests {
             ErrorCode::ServicesNotConfigured,
             ErrorCode::ValidationError,
             ErrorCode::RateLimitExceeded,
-            ErrorCode::NotInitialized,
             ErrorCode::AttestationNotFound,
             ErrorCode::InvalidSep10Token,
             ErrorCode::KycNotFound,
-            ErrorCode::KycPending,
             ErrorCode::KycRejected,
+<<<<<<< fix/kyc-pending-error-code-22
+            ErrorCode::KycPending,
+            ErrorCode::NotInitialized,
+=======
+>>>>>>> main
             ErrorCode::IllegalTransition,
             ErrorCode::CacheExpired,
             ErrorCode::CacheNotFound,
