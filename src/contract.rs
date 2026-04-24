@@ -442,6 +442,29 @@ impl AnchorKitContract {
             .extend_ttl(&storage_key, PERSISTENT_TTL, PERSISTENT_TTL);
     }
 
+    /// Configure the maximum JWT length accepted by `verify_sep10_jwt` (issue #64).
+    /// Must be between 2048 and 16384. Admin-only.
+    pub fn set_jwt_max_len(env: Env, max_len: u32) {
+        Self::require_admin(&env);
+        if max_len < sep10_jwt::MAX_JWT_LEN || max_len > 16384 {
+            panic_with_error!(&env, ErrorCode::ValidationError);
+        }
+        env.storage()
+            .instance()
+            .set(&symbol_short!("JWTMAXLEN"), &max_len);
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_TTL, INSTANCE_TTL);
+    }
+
+    /// Return the currently configured JWT max length (defaults to 2048).
+    pub fn get_jwt_max_len(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get::<_, u32>(&symbol_short!("JWTMAXLEN"))
+            .unwrap_or(sep10_jwt::MAX_JWT_LEN)
+    }
+
     /// Verifies a SEP-10 JWT (JWS compact, EdDSA) using the stored key for `issuer`: signature, `exp`, and `sub`.
     pub fn verify_sep10_token(env: Env, token: String, issuer: Address) {
         let pk: Bytes = env
