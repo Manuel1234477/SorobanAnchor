@@ -200,3 +200,74 @@ mod transaction_state_tracker_tests {
         assert!(record2.last_updated >= initial_timestamp);
     }
 }
+
+#[cfg(test)]
+mod snapshot_tests {
+    use std::collections::HashMap;
+
+    /// Minimal snapshot representation matching the JSON fixtures.
+    #[derive(serde::Deserialize, PartialEq, Debug)]
+    struct RecordSnapshot {
+        transaction_id: u64,
+        state: String,
+        state_u32: u32,
+        initiator: String,
+        timestamp: u64,
+        last_updated: u64,
+        error_message: Option<String>,
+    }
+
+    fn load_snapshot(name: &str) -> RecordSnapshot {
+        let path = format!(
+            "{}/test_snapshots/transaction_state_tracker_tests/{}.json",
+            env!("CARGO_MANIFEST_DIR"),
+            name
+        );
+        let data = std::fs::read_to_string(&path)
+            .unwrap_or_else(|_| panic!("missing snapshot: {path}"));
+        serde_json::from_str(&data).unwrap_or_else(|e| panic!("bad snapshot {name}: {e}"))
+    }
+
+    #[test]
+    fn snapshot_state_discriminants() {
+        let cases: HashMap<&str, (&str, u32)> = [
+            ("record_pending",     ("Pending",    1)),
+            ("record_in_progress", ("InProgress", 2)),
+            ("record_completed",   ("Completed",  3)),
+            ("record_failed",      ("Failed",     4)),
+        ]
+        .into();
+
+        for (file, (expected_state, expected_u32)) in &cases {
+            let snap = load_snapshot(file);
+            assert_eq!(
+                snap.state, *expected_state,
+                "{file}: state name changed — on-chain encoding regression"
+            );
+            assert_eq!(
+                snap.state_u32, *expected_u32,
+                "{file}: state discriminant changed — on-chain encoding regression"
+            );
+        }
+    }
+
+    #[test]
+    fn snapshot_failed_has_error_message() {
+        let snap = load_snapshot("record_failed");
+        assert!(
+            snap.error_message.is_some(),
+            "record_failed snapshot must have an error_message"
+        );
+    }
+
+    #[test]
+    fn snapshot_non_failed_no_error_message() {
+        for name in &["record_pending", "record_in_progress", "record_completed"] {
+            let snap = load_snapshot(name);
+            assert!(
+                snap.error_message.is_none(),
+                "{name} snapshot must not have an error_message"
+            );
+        }
+    }
+}

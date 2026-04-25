@@ -24,6 +24,7 @@
     "ui"
   ],
   "dependencies": {
+    "@albedo-link/intent": "1.0.0",
     "zod": "^3.22.4"
   },
   "peerDependencies": {

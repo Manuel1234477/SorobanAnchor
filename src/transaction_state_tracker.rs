@@ -270,7 +270,7 @@ impl TransactionStateTracker {
             self.cache = alloc::vec::Vec::new();
             Ok(())
         } else {
-            Err(String::from_str(&Env::default(), "Cannot clear cache in production mode"))
+            Err("Cannot clear cache in production mode".into())
         }
     }
 

@@ -14,14 +14,50 @@ interface WalletInfo {
   network: string;
 }
 
-// ─── Mock Helpers ─────────────────────────────────────────────────────────────
-const mockAddress = () => {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  let addr = "G";
-  for (let i = 0; i < 55; i++)
-    addr += chars[Math.floor(Math.random() * chars.length)];
-  return addr;
-};
+// ─── Wallet Helpers ───────────────────────────────────────────────────────────
+
+/** Freighter browser extension API (injected at window.freighter) */
+interface FreighterAPI {
+  getPublicKey(): Promise<string>;
+  signTransaction(xdr: string, opts?: { network?: string }): Promise<string>;
+  isConnected(): Promise<boolean>;
+}
+
+declare global {
+  interface Window {
+    freighter?: FreighterAPI;
+  }
+}
+
+/** Albedo intent API */
+interface AlbedoResult {
+  pubkey: string;
+  signed_envelope_xdr?: string;
+}
+
+async function getWalletPublicKey(): Promise<{ address: string; wallet: "freighter" | "albedo" }> {
+  // Try Freighter first
+  if (window.freighter) {
+    const connected = await window.freighter.isConnected();
+    if (connected) {
+      const address = await window.freighter.getPublicKey();
+      return { address, wallet: "freighter" };
+    }
+  }
+  // Fallback to Albedo
+  const albedo = await import("@albedo-link/intent");
+  const result: AlbedoResult = await albedo.default.publicKey({ require_existing: false });
+  return { address: result.pubkey, wallet: "albedo" };
+}
+
+async function signWithWallet(xdr: string, network: string): Promise<string> {
+  if (window.freighter) {
+    return window.freighter.signTransaction(xdr, { network });
+  }
+  const albedo = await import("@albedo-link/intent");
+  const result: AlbedoResult = await albedo.default.tx({ xdr, network: network.toLowerCase(), submit: false });
+  return result.signed_envelope_xdr!;
+}
 
 const mockXDR = () => {
   const chars =
@@ -32,20 +68,6 @@ const mockXDR = () => {
     xdr += chars[Math.floor(Math.random() * chars.length)];
   }
   return xdr + "==";
-};
-
-const mockJWT = () => {
-  const b64 = (obj: object) => btoa(JSON.stringify(obj)).replace(/=/g, "");
-  const header = b64({ alg: "HS256", typ: "JWT" });
-  const payload = b64({
-    iss: "testanchor.stellar.org",
-    sub: mockAddress(),
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + 86400,
-    jti: crypto.randomUUID(),
-  });
-  const sig = btoa(Math.random().toString(36).slice(2, 34)).replace(/=/g, "");
-  return `${header}.${payload}.${sig}`;
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -484,16 +506,20 @@ export default function SEP10AuthFlow() {
     setLoading(true);
     setError(null);
     addLog("Requesting wallet connection...");
-    await sleep(900);
-    addLog("Scanning for available wallets...");
-    await sleep(700);
-    const addr = mockAddress();
-    addLog(`Wallet found: ${addr.slice(0, 8)}...`);
-    await sleep(400);
-    addLog("Connection approved ✓");
-    setWallet({ address: addr, network: "Testnet" });
-    setStep("challenge");
-    setLoading(false);
+    try {
+      addLog("Scanning for available wallets (Freighter, Albedo)...");
+      const { address, wallet: walletName } = await getWalletPublicKey();
+      addLog(`${walletName} wallet found: ${address.slice(0, 8)}...`);
+      addLog("Connection approved ✓");
+      setWallet({ address, network: "Testnet" });
+      setStep("challenge");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Wallet connection failed";
+      setError(msg);
+      addLog(`Error: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fetchChallenge = async () => {
@@ -516,14 +542,19 @@ export default function SEP10AuthFlow() {
     setLoading(true);
     setError(null);
     addLog("Sending challenge XDR to wallet for signing...");
-    await sleep(800);
-    addLog("User approved signature request");
-    await sleep(600);
-    const signed = mockXDR();
-    addLog("Transaction signed with ED25519 key ✓");
-    setSignedXdr(signed);
-    setStep("token");
-    setLoading(false);
+    try {
+      const signed = await signWithWallet(challenge!, wallet!.network);
+      addLog("User approved signature request");
+      addLog("Transaction signed with ED25519 key ✓");
+      setSignedXdr(signed);
+      setStep("token");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Signing failed";
+      setError(msg);
+      addLog(`Error: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const submitChallenge = async () => {
